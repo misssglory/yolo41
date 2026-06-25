@@ -4,6 +4,20 @@
 [image]
 size = 416
 
+[training]
+# "auto" -> first try local Keras weights from runs/detect/yolov3_keras_chess*/weights
+# "none" -> do not load local Keras weights
+# "path/to/file.weights.h5" -> load exact Keras weights
+weights = "auto"
+
+# If no local Keras weights were loaded, initialize YOLOv3 from the original
+# Darknet COCO weights from the lesson, then fine-tune on chess classes.
+# Final output conv layers for 80 COCO classes are skipped because the chess
+# dataset has 13 classes.
+use_darknet_pretrained = true
+darknet_weights = "yolov3.weights"
+darknet_weights_url = "https://storage.yandexcloud.net/academy.ai/CV/yolov3.weights"
+
 [demo]
 # "square"  -> only 416x416 baseline image.
 # "mixed"   -> 416x416 baseline + landscape + portrait test images.
@@ -19,3 +33,7 @@ rectangular_transform = "center_crop"
 square_size = [416, 416]
 landscape_size = [800, 500]
 portrait_size = [500, 900]
+
+# Notebook visualization grid. Use 16 for readable examples, 64 for larger reports.
+sample_count = 16
+grid_cols = 4

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from itertools import repeat
 
+import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Add, Concatenate, Lambda
@@ -206,3 +207,110 @@ def YoloV3(
     )((boxes_0[:3], boxes_1[:3], boxes_2[:3]))
 
     return Model(inputs, outputs, name="yolov3")
+
+
+YOLO_V3_LAYERS = [
+    "yolo_darknet",
+    "yolo_head_1",
+    "yolo_output_1",
+    "yolo_head_2",
+    "yolo_output_2",
+    "yolo_head_3",
+    "yolo_output_3",
+]
+
+
+def _next_batch_norm_layer(layers, idx):
+    """Return the BatchNormalization layer after a Conv2D, if it exists."""
+    if idx + 1 >= len(layers):
+        return None
+    candidate = layers[idx + 1]
+    return candidate if isinstance(candidate, BatchNormalization) else None
+
+
+def load_darknet_weights_for_finetune(
+    model: tf.keras.Model,
+    weights_file: str,
+    classes: int,
+    darknet_classes: int = 80,
+    layers: list[str] | None = None,
+) -> dict[str, int]:
+    """Load original YOLOv3 Darknet weights into the lesson model before fine-tuning.
+
+    The lesson downloads COCO weights for 80 classes.  For the chess homework we build
+    the same YOLOv3 architecture, but the final output convolutions have
+    3 * (classes + 5) filters instead of 3 * (80 + 5) filters.
+
+    Therefore this loader reads the whole .weights file, loads all compatible
+    backbone/head layers, and deliberately skips only the 3 final output conv layers
+    whose shapes do not match the chess class count. Those skipped layers remain
+    randomly initialized and are trained from scratch.
+    """
+    layers = layers or YOLO_V3_LAYERS
+    darknet_output_filters = 3 * (darknet_classes + 5)
+
+    loaded_conv = 0
+    skipped_conv = 0
+    loaded_bn = 0
+
+    with open(weights_file, "rb") as wf:
+        # Darknet header: major, minor, revision, seen, _
+        _ = np.fromfile(wf, dtype=np.int32, count=5)
+
+        for layer_name in layers:
+            sub_model = model.get_layer(layer_name)
+            sub_layers = list(sub_model.layers)
+
+            for i, layer in enumerate(sub_layers):
+                if not isinstance(layer, Conv2D):
+                    continue
+
+                batch_norm = _next_batch_norm_layer(sub_layers, i)
+                kernel_h = layer.kernel_size[0]
+                kernel_w = layer.kernel_size[1]
+                if kernel_h != kernel_w:
+                    raise ValueError(f"Only square Conv2D kernels are expected, got {layer.kernel_size}")
+                kernel_size = kernel_h
+                in_dim = layer.get_weights()[0].shape[2]
+
+                # The three final YOLO output convs have no BN and differ when classes != 80.
+                is_output_conv_mismatch = batch_norm is None and layer.filters != darknet_output_filters
+                file_filters = darknet_output_filters if is_output_conv_mismatch else layer.filters
+
+                if batch_norm is None:
+                    conv_bias = np.fromfile(wf, dtype=np.float32, count=file_filters)
+                else:
+                    bn_weights = np.fromfile(wf, dtype=np.float32, count=4 * file_filters)
+                    bn_weights = bn_weights.reshape((4, file_filters))[[1, 0, 2, 3]]
+
+                conv_shape_darknet = (file_filters, in_dim, kernel_size, kernel_size)
+                conv_weights = np.fromfile(wf, dtype=np.float32, count=int(np.prod(conv_shape_darknet)))
+                conv_weights = conv_weights.reshape(conv_shape_darknet).transpose([2, 3, 1, 0])
+
+                expected_conv_shape = layer.get_weights()[0].shape
+                if conv_weights.shape != expected_conv_shape:
+                    # This is expected for the 3 final output layers when classes=13.
+                    skipped_conv += 1
+                    continue
+
+                if batch_norm is None:
+                    expected_bias_shape = layer.get_weights()[1].shape
+                    if conv_bias.shape != expected_bias_shape:
+                        skipped_conv += 1
+                        continue
+                    layer.set_weights([conv_weights, conv_bias])
+                else:
+                    layer.set_weights([conv_weights])
+                    batch_norm.set_weights(bn_weights)
+                    loaded_bn += 1
+                loaded_conv += 1
+
+        unread = wf.read()
+        if unread:
+            raise RuntimeError(f"Darknet weights were not fully consumed: {len(unread)} trailing bytes")
+
+    return {
+        "loaded_conv": loaded_conv,
+        "loaded_batch_norm": loaded_bn,
+        "skipped_conv": skipped_conv,
+    }

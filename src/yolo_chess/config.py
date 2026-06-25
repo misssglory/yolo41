@@ -41,12 +41,25 @@ class DemoConfig:
     square_size: tuple[int, int] = (416, 416)
     landscape_size: tuple[int, int] = (800, 500)
     portrait_size: tuple[int, int] = (500, 900)
+    sample_count: int = 16
+    grid_cols: int = 4
+
+
+@dataclass(frozen=True)
+class TrainingConfig:
+    """Controls initialization before fine-tuning."""
+
+    weights: str = "auto"
+    use_darknet_pretrained: bool = True
+    darknet_weights: str = "yolov3.weights"
+    darknet_weights_url: str = "https://storage.yandexcloud.net/academy.ai/CV/yolov3.weights"
 
 
 @dataclass(frozen=True)
 class AppConfig:
     image_size: int = SIZE
     demo: DemoConfig = field(default_factory=DemoConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
 
 
 def _pair(value: Any, fallback: tuple[int, int]) -> tuple[int, int]:
@@ -72,6 +85,7 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
 
     image = raw.get("image", {}) or {}
     demo = raw.get("demo", {}) or {}
+    training = raw.get("training", {}) or {}
 
     image_size = int(image.get("size", SIZE))
     demo_cfg = DemoConfig(
@@ -80,8 +94,21 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
         square_size=_pair(demo.get("square_size"), (image_size, image_size)),
         landscape_size=_pair(demo.get("landscape_size"), (800, 500)),
         portrait_size=_pair(demo.get("portrait_size"), (500, 900)),
+        sample_count=int(demo.get("sample_count", 16)),
+        grid_cols=int(demo.get("grid_cols", 4)),
     )
-    return AppConfig(image_size=image_size, demo=demo_cfg)
+    training_cfg = TrainingConfig(
+        weights=str(training.get("weights", "auto")).strip(),
+        use_darknet_pretrained=bool(training.get("use_darknet_pretrained", True)),
+        darknet_weights=str(training.get("darknet_weights", "yolov3.weights")).strip(),
+        darknet_weights_url=str(
+            training.get(
+                "darknet_weights_url",
+                "https://storage.yandexcloud.net/academy.ai/CV/yolov3.weights",
+            )
+        ).strip(),
+    )
+    return AppConfig(image_size=image_size, demo=demo_cfg, training=training_cfg)
 
 
 def orientation_cases(demo: DemoConfig) -> list[tuple[str, tuple[int, int]]]:
