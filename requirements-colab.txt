@@ -1,0 +1,10 @@
+# Google Colab / standard Python 3.12 environment.
+# Colab normally works better with pip than uv and has stable TensorFlow wheels.
+tensorflow
+numpy
+opencv-python-headless
+pillow
+pyyaml
+matplotlib
+tqdm
+pandas

@@ -280,3 +280,66 @@ Disable auto-download if needed:
 ```bash
 python -m yolo_chess.train --data chess_yolo/data.yaml --no-download-if-missing
 ```
+
+## 7. Colab / Jupyter dependency install without uv
+
+Colab may have an `uv` binary in PATH, but it can still fail when asked to install into `/usr/bin/python3`. Control this via `config.toml`:
+
+```toml
+[environment]
+use_uv = false
+requirements = "requirements-colab.txt"
+editable_install = true
+upgrade_pip = false
+```
+
+Then in the first notebook cell after cloning the repo, run:
+
+```python
+import os, sys, subprocess
+from pathlib import Path
+
+REPO_DIR = Path("/content/yolov3_chess_homework_lesson/yolov3_chess_homework_lesson")
+os.chdir(REPO_DIR)
+subprocess.run([sys.executable, "scripts/install_deps.py", "--config", "config.toml"], check=True)
+```
+
+If you want to override the config from a notebook cell:
+
+```python
+subprocess.run([sys.executable, "scripts/install_deps.py", "--force-pip"], check=True)
+```
+
+For Nix + Python 3.14 you can keep using `requirements.txt` with `tf-nightly`; for Colab/Python 3.12 prefer `requirements-colab.txt` with stable `tensorflow`.
+
+## Label mapping and Cyrillic annotations
+
+The project reads class names from `chess_yolo/data.yaml` in the same way as the YOLOv11 lesson workflow with Ultralytics: numeric label ids in `.txt` files are mapped to `names` from `data.yaml`.
+
+For the lesson chess dataset the expected order is:
+
+```text
+0  слон
+1  черный слон
+2  черный король
+3  черный конь
+4  черная пешка
+5  черный ферзь
+6  черная ладья
+7  белый слон
+8  белый король
+9  белый конь
+10 белая пешка
+11 белый ферзь
+12 белая ладья
+```
+
+You can verify the mapping and per-class counts with:
+
+```bash
+python scripts/check_labels.py --data chess_yolo/data.yaml --config config.toml
+```
+
+Cyrillic labels are now drawn with PIL instead of `cv2.putText`, because OpenCV text rendering often shows Russian text as `????`.
+
+The inference NMS also explicitly converts boxes from project format `[x1, y1, x2, y2]` to TensorFlow NMS format `[y1, x1, y2, x2]` and then converts them back before drawing. This fixes stretched/wrongly oriented boxes after `combined_non_max_suppression`.

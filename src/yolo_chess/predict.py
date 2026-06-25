@@ -26,6 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source", default="chess_yolo/test", help="Image file or directory")
     parser.add_argument("--out", default="runs/detect/predict")
     parser.add_argument("--conf", type=float, default=0.25)
+    parser.add_argument("--config", default="config.toml", help="Path to config.toml")
     parser.add_argument("--download-if-missing", action=argparse.BooleanOptionalAction, default=True)
     return parser.parse_args()
 
@@ -33,7 +34,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     data_yaml = ensure_data_yaml(args.data, download_if_missing=args.download_if_missing)
-    info = load_dataset_info(data_yaml)
+    info = load_dataset_info(data_yaml, config_path=args.config)
     model = build_inference_model(args.weights, info.num_classes)
 
     source = Path(args.source)

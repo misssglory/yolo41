@@ -2,7 +2,7 @@
 name = "yolov3-chess-homework"
 version = "0.2.0"
 description = "YOLOv3 from lesson, trained from scratch on chess pieces"
-requires-python = ">=3.14"
+requires-python = ">=3.10"
 
 [tool.setuptools.packages.find]
 where = ["src"]

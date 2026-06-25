@@ -8,6 +8,7 @@ from typing import Any
 import cv2
 import numpy as np
 import tensorflow as tf
+from PIL import Image, ImageDraw, ImageFont
 
 from .config import SIZE
 from .model import YoloV3
@@ -97,6 +98,49 @@ def build_inference_model(weights: str | Path, num_classes: int) -> tf.keras.Mod
     return inference_model
 
 
+def _find_unicode_font(size: int = 16) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Find a font that can draw Cyrillic labels. OpenCV putText cannot."""
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/run/current-system/sw/share/X11/fonts/TTF/DejaVuSans.ttf",
+        "/run/current-system/sw/share/fonts/truetype/DejaVuSans.ttf",
+    ]
+    for path in candidates:
+        if Path(path).exists():
+            return ImageFont.truetype(path, size=size)
+    return ImageFont.load_default()
+
+
+def _draw_unicode_detections_bgr(
+    image_bgr: np.ndarray,
+    detections: list[dict[str, Any]],
+    font_size: int = 16,
+) -> np.ndarray:
+    """Draw boxes and Cyrillic labels using PIL, then return BGR for cv2.imwrite."""
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    pil = Image.fromarray(image_rgb).convert("RGB")
+    draw = ImageDraw.Draw(pil)
+    font = _find_unicode_font(font_size)
+
+    for det in detections:
+        x1, y1, x2, y2 = [int(round(v)) for v in det["box_restored_original_xyxy"]]
+        if x2 <= x1 or y2 <= y1:
+            continue
+        text = f'{det["class_name"]} {float(det["score"]):.2f}'
+        draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=2)
+
+        tb = draw.textbbox((x1, y1), text, font=font)
+        tw = tb[2] - tb[0]
+        th = tb[3] - tb[1]
+        ty = max(0, y1 - th - 6)
+        draw.rectangle([x1, ty, x1 + tw + 8, ty + th + 6], fill=(255, 0, 0))
+        draw.text((x1 + 4, ty + 3), text, fill=(255, 255, 255), font=font)
+
+    return cv2.cvtColor(np.asarray(pil), cv2.COLOR_RGB2BGR)
+
+
 def predict_image_with_meta(
     model: tf.keras.Model,
     image_path: str | Path,
@@ -113,13 +157,16 @@ def predict_image_with_meta(
     rgb = cv2.cvtColor(letterboxed_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
     batch = np.expand_dims(rgb, axis=0)
 
-    boxes, scores, classes, valid = model.predict(batch, verbose=0)
-    boxes = boxes[0]
-    scores = scores[0]
-    classes = classes[0].astype(np.int32)
-    valid = int(valid[0])
+    batch_tensor = tf.convert_to_tensor(batch, dtype=tf.float32)
+    # Direct call avoids Keras predict graph/XLA issues with CombinedNonMaxSuppression in Colab.
+    with tf.device("/CPU:0"):
+        boxes, scores, classes, valid = model(batch_tensor, training=False)
 
-    drawn = original_bgr.copy()
+    boxes = boxes.numpy()[0]
+    scores = scores.numpy()[0]
+    classes = classes.numpy()[0].astype(np.int32)
+    valid = int(valid.numpy()[0])
+
     detections: list[dict[str, Any]] = []
 
     for i in range(valid):
@@ -133,28 +180,6 @@ def predict_image_with_meta(
             continue
 
         name = class_names[class_id] if 0 <= class_id < len(class_names) else f"class_{class_id}"
-        cv2.rectangle(drawn, (x1, y1), (x2, y2), (255, 0, 0), 2)
-        cv2.putText(
-            drawn,
-            f"{name} {score:.2f}",
-            (x1, max(0, y1 - 5)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 0, 0),
-            2,
-            cv2.LINE_AA,
-        )
-        cv2.putText(
-            drawn,
-            f"{name} {score:.2f}",
-            (x1, max(0, y1 - 5)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 255, 255),
-            1,
-            cv2.LINE_AA,
-        )
-
         detections.append(
             {
                 "class_id": class_id,
@@ -164,6 +189,8 @@ def predict_image_with_meta(
                 "box_restored_original_xyxy": box_original,
             }
         )
+
+    drawn = _draw_unicode_detections_bgr(original_bgr.copy(), detections)
 
     report = {
         "image_path": str(image_path),

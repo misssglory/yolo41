@@ -150,7 +150,7 @@ def main() -> None:
     darknet_weights_url = args.darknet_weights_url or cfg.training.darknet_weights_url
 
     data_yaml = ensure_data_yaml(args.data, download_if_missing=args.download_if_missing)
-    dataset_info = load_dataset_info(data_yaml)
+    dataset_info = load_dataset_info(data_yaml, config_path=args.config)
 
     if not dataset_info.train_images:
         raise RuntimeError(f"No training images found from {args.data}")

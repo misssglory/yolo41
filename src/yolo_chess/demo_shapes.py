@@ -131,7 +131,7 @@ def main() -> None:
     cases = orientation_cases(demo_cfg)
 
     data_yaml = ensure_data_yaml(args.data, download_if_missing=args.download_if_missing)
-    info = load_dataset_info(data_yaml)
+    info = load_dataset_info(data_yaml, config_path=args.config)
     model = build_inference_model(args.weights, info.num_classes)
 
     out = Path(args.out)

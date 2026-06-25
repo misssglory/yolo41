@@ -10,7 +10,7 @@ import numpy as np
 import tensorflow as tf
 import yaml
 
-from .config import ANCHORS, ANCHOR_MASKS, IMAGE_SUFFIXES, MAX_BOXES, SIZE
+from .config import ANCHORS, ANCHOR_MASKS, DEFAULT_CHESS_CLASS_NAMES, IMAGE_SUFFIXES, MAX_BOXES, SIZE, load_config
 from .losses import transform_targets
 
 
@@ -52,7 +52,47 @@ def _collect_images(paths: Iterable[Path]) -> list[Path]:
     return sorted(set(images))
 
 
-def load_dataset_info(data_yaml: str | os.PathLike) -> DatasetInfo:
+def _normalize_class_names(names, nc: int, config_path: str | os.PathLike = "config.toml") -> list[str]:
+    """Return class names in numeric YOLO id order: 0, 1, 2, ...
+
+    Ultralytics data.yaml may store names either as a list or as a mapping.
+    When it is a mapping, keys can be strings, so plain sorted(names) would
+    produce 0, 1, 10, 11, 12, 2... and break label mapping.
+    """
+    cfg = load_config(config_path)
+    if cfg.labels.class_names_override:
+        class_names = list(cfg.labels.class_names_override)
+    elif isinstance(names, dict):
+        class_names = [f"class_{i}" for i in range(nc)]
+        for key, value in names.items():
+            try:
+                idx = int(key)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= idx < nc:
+                class_names[idx] = str(value)
+    elif isinstance(names, list):
+        class_names = [str(x) for x in names]
+    else:
+        class_names = []
+
+    if nc == 13 and cfg.labels.use_default_chess_names_if_nc_13:
+        # Use the known lesson mapping if yaml is missing/garbled/too short.
+        if len(class_names) != 13 or any(not str(x).strip() for x in class_names):
+            class_names = list(DEFAULT_CHESS_CLASS_NAMES)
+
+    if not class_names:
+        class_names = [f"class_{i}" for i in range(nc)]
+
+    if len(class_names) < nc:
+        class_names.extend(f"class_{i}" for i in range(len(class_names), nc))
+    elif len(class_names) > nc:
+        class_names = class_names[:nc]
+
+    return class_names
+
+
+def load_dataset_info(data_yaml: str | os.PathLike, config_path: str | os.PathLike = "config.toml") -> DatasetInfo:
     data_yaml = Path(data_yaml)
     if not data_yaml.exists():
         raise FileNotFoundError(
@@ -68,14 +108,8 @@ def load_dataset_info(data_yaml: str | os.PathLike) -> DatasetInfo:
     root = data_yaml.parent.resolve()
 
     names = data.get("names", [])
-    if isinstance(names, dict):
-        class_names = [names[i] for i in sorted(names)]
-    else:
-        class_names = list(names)
-
-    num_classes = int(data.get("nc", len(class_names)))
-    if not class_names:
-        class_names = [f"class_{i}" for i in range(num_classes)]
+    num_classes = int(data.get("nc", len(names) if isinstance(names, list) else len(names or [])))
+    class_names = _normalize_class_names(names, num_classes, config_path=config_path)
 
     train_images = _collect_images(_resolve_yaml_path(root, data.get("train")))
     val_images = _collect_images(_resolve_yaml_path(root, data.get("val")))

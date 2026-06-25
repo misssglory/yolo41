@@ -142,8 +142,26 @@ def yolo_boxes(pred, anchors, classes):
     return bbox, score, class_probs, pred_box
 
 
+def xyxy_to_yxyx(boxes):
+    """Convert [x1, y1, x2, y2] boxes to TensorFlow NMS format [y1, x1, y2, x2]."""
+    x1, y1, x2, y2 = tf.split(boxes, 4, axis=-1)
+    return tf.concat([y1, x1, y2, x2], axis=-1)
+
+
+def yxyx_to_xyxy(boxes):
+    """Convert TensorFlow NMS boxes [y1, x1, y2, x2] back to project format [x1, y1, x2, y2]."""
+    y1, x1, y2, x2 = tf.split(boxes, 4, axis=-1)
+    return tf.concat([x1, y1, x2, y2], axis=-1)
+
+
 def nonMaximumSuppression(outputs, anchors, masks, classes):
-    """NMS aligned with the lesson, using tf.image.combined_non_max_suppression."""
+    """NMS aligned with the lesson, with explicit coordinate-order conversion.
+
+    yolo_boxes returns [x1, y1, x2, y2].
+    tf.image.combined_non_max_suppression expects [y1, x1, y2, x2].
+    Returning boxes are converted back to [x1, y1, x2, y2] so the rest of
+    the project and notebook cells can draw them correctly.
+    """
     boxes, conf, out_type = [], [], []
 
     for output in outputs:
@@ -151,13 +169,15 @@ def nonMaximumSuppression(outputs, anchors, masks, classes):
         conf.append(tf.reshape(output[1], (tf.shape(output[1])[0], -1, tf.shape(output[1])[-1])))
         out_type.append(tf.reshape(output[2], (tf.shape(output[2])[0], -1, tf.shape(output[2])[-1])))
 
-    bbox = tf.concat(boxes, axis=1)
+    bbox_xyxy = tf.concat(boxes, axis=1)
     confidence = tf.concat(conf, axis=1)
     class_probs = tf.concat(out_type, axis=1)
     scores = confidence * class_probs
 
-    boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
-        boxes=tf.reshape(bbox, (tf.shape(bbox)[0], -1, 1, 4)),
+    bbox_yxyx = xyxy_to_yxyx(bbox_xyxy)
+
+    nms_boxes_yxyx, nms_scores, nms_classes, valid_detections = tf.image.combined_non_max_suppression(
+        boxes=tf.reshape(bbox_yxyx, (tf.shape(bbox_yxyx)[0], -1, 1, 4)),
         scores=tf.reshape(scores, (tf.shape(scores)[0], -1, tf.shape(scores)[-1])),
         max_output_size_per_class=100,
         max_total_size=100,
@@ -165,7 +185,8 @@ def nonMaximumSuppression(outputs, anchors, masks, classes):
         score_threshold=YOLO_SCORE_THRESHOLD,
     )
 
-    return boxes, scores, classes, valid_detections
+    nms_boxes_xyxy = yxyx_to_xyxy(nms_boxes_yxyx)
+    return nms_boxes_xyxy, nms_scores, nms_classes, valid_detections
 
 
 def YoloV3(

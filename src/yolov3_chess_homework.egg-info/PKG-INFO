@@ -1,5 +1,0 @@
-Metadata-Version: 2.4
-Name: yolov3-chess-homework
-Version: 0.2.0
-Summary: YOLOv3 from lesson, trained from scratch on chess pieces
-Requires-Python: >=3.14

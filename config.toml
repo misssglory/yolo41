@@ -18,6 +18,19 @@ use_darknet_pretrained = true
 darknet_weights = "yolov3.weights"
 darknet_weights_url = "https://storage.yandexcloud.net/academy.ai/CV/yolov3.weights"
 
+[environment]
+# Dependency installer mode for notebooks/Colab helper cells.
+# true  -> prefer uv if available
+# false -> always use python -m pip (recommended for Google Colab)
+use_uv = false
+
+# Colab usually runs Python 3.12 and already supports stable TensorFlow.
+# For Nix + Python 3.14 keep requirements.txt with tf-nightly.
+# For Colab/Python 3.12 prefer requirements-colab.txt.
+requirements = "requirements-colab.txt"
+editable_install = true
+upgrade_pip = false
+
 [demo]
 # "square"  -> only 416x416 baseline image.
 # "mixed"   -> 416x416 baseline + landscape + portrait test images.
@@ -37,3 +50,25 @@ portrait_size = [500, 900]
 # Notebook visualization grid. Use 16 for readable examples, 64 for larger reports.
 sample_count = 16
 grid_cols = 4
+
+[labels]
+# If data.yaml has correct names, leave override empty and the code will read names from data.yaml.
+# This list is here as a safety net for the lesson chess_yolo dataset and notebooks.
+use_default_chess_names_if_nc_13 = true
+class_names_override = []
+# To force the exact lesson mapping, uncomment the block below:
+# class_names_override = [
+#   "слон",
+#   "черный слон",
+#   "черный король",
+#   "черный конь",
+#   "черная пешка",
+#   "черный ферзь",
+#   "черная ладья",
+#   "белый слон",
+#   "белый король",
+#   "белый конь",
+#   "белая пешка",
+#   "белый ферзь",
+#   "белая ладья",
+# ]

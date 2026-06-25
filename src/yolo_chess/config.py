@@ -31,6 +31,24 @@ MAX_BOXES = 100
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
+# Class order used by the lesson chess_yolo dataset.
+# It must match numeric class ids in YOLO label .txt files.
+DEFAULT_CHESS_CLASS_NAMES = [
+    "слон",
+    "черный слон",
+    "черный король",
+    "черный конь",
+    "черная пешка",
+    "черный ферзь",
+    "черная ладья",
+    "белый слон",
+    "белый король",
+    "белый конь",
+    "белая пешка",
+    "белый ферзь",
+    "белая ладья",
+]
+
 
 @dataclass(frozen=True)
 class DemoConfig:
@@ -56,10 +74,39 @@ class TrainingConfig:
 
 
 @dataclass(frozen=True)
+class EnvironmentConfig:
+    """Controls dependency installation in notebooks/Colab helper cells.
+
+    The Nix flake can still use uv independently. This config is meant for
+    notebook cells and scripts/install_deps.py, where Colab often works better
+    with plain pip even if an uv binary happens to be present.
+    """
+
+    use_uv: bool = True
+    requirements: str = "requirements.txt"
+    editable_install: bool = True
+    upgrade_pip: bool = False
+
+
+@dataclass(frozen=True)
+class LabelsConfig:
+    """Controls class-name mapping for labels and annotations.
+
+    class_names_override is optional. If empty, names are read from data.yaml.
+    It is useful in notebooks when data.yaml was damaged or saved with wrong encoding.
+    """
+
+    class_names_override: tuple[str, ...] = ()
+    use_default_chess_names_if_nc_13: bool = True
+
+
+@dataclass(frozen=True)
 class AppConfig:
     image_size: int = SIZE
     demo: DemoConfig = field(default_factory=DemoConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
+    environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
+    labels: LabelsConfig = field(default_factory=LabelsConfig)
 
 
 def _pair(value: Any, fallback: tuple[int, int]) -> tuple[int, int]:
@@ -86,6 +133,8 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
     image = raw.get("image", {}) or {}
     demo = raw.get("demo", {}) or {}
     training = raw.get("training", {}) or {}
+    environment = raw.get("environment", {}) or {}
+    labels = raw.get("labels", {}) or {}
 
     image_size = int(image.get("size", SIZE))
     demo_cfg = DemoConfig(
@@ -108,7 +157,24 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
             )
         ).strip(),
     )
-    return AppConfig(image_size=image_size, demo=demo_cfg, training=training_cfg)
+    env_cfg = EnvironmentConfig(
+        use_uv=bool(environment.get("use_uv", True)),
+        requirements=str(environment.get("requirements", "requirements.txt")).strip(),
+        editable_install=bool(environment.get("editable_install", True)),
+        upgrade_pip=bool(environment.get("upgrade_pip", False)),
+    )
+    raw_override = labels.get("class_names_override", []) or []
+    labels_cfg = LabelsConfig(
+        class_names_override=tuple(str(x) for x in raw_override),
+        use_default_chess_names_if_nc_13=bool(labels.get("use_default_chess_names_if_nc_13", True)),
+    )
+    return AppConfig(
+        image_size=image_size,
+        demo=demo_cfg,
+        training=training_cfg,
+        environment=env_cfg,
+        labels=labels_cfg,
+    )
 
 
 def orientation_cases(demo: DemoConfig) -> list[tuple[str, tuple[int, int]]]:
