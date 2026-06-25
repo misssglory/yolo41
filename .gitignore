@@ -5,4 +5,7 @@ yolov3_chess_homework_lesson/
 runs
 *__pycache__*
 *.egg-info*
+notebook_outputs
+*.weights
+
 

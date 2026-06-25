@@ -146,9 +146,73 @@ def find_label_path(image_path: Path) -> Path:
     return candidates[0]
 
 
-def read_yolo_label_file(label_path: str | os.PathLike, max_boxes: int = MAX_BOXES) -> np.ndarray:
-    """Read YOLO txt labels and return padded [x1, y1, x2, y2, class] normalized boxes."""
+def _convert_label_row_to_xyxy(parts: list[str], box_format: str) -> list[float] | None:
+    """Convert one label row to [x1, y1, x2, y2, class], normalized.
+
+    The lesson loss/target code expects xyxy-normalized boxes.
+
+    Supported input formats:
+    - polygon_normalized: class x1 y1 x2 y2 x3 y3 x4 y4
+      The current chess_yolo dataset uses this 4-point polygon format.
+      It is converted to an axis-aligned detection bbox using min/max.
+    - xyxy_normalized: class x1 y1 x2 y2
+    - yolo_xywh:       class x_center y_center width height
+    """
+    if len(parts) < 5:
+        return None
+
+    cls = int(float(parts[0]))
+    fmt = box_format.strip().lower()
+
+    if fmt in {"polygon_normalized", "polygon", "poly", "quadrilateral", "xyxyxyxy_normalized", "roboflow_polygon"}:
+        if len(parts) < 9:
+            # A polygon-configured dataset row without 4 points is invalid for this export.
+            return None
+        coords = [float(x) for x in parts[1:9]]
+        xs = coords[0::2]
+        ys = coords[1::2]
+        x1, x2 = min(xs), max(xs)
+        y1, y2 = min(ys), max(ys)
+    elif fmt in {"yolo_xywh", "xywh", "ultralytics_xywh"}:
+        x_center, y_center, width, height = map(float, parts[1:5])
+        x1 = x_center - width / 2
+        y1 = y_center - height / 2
+        x2 = x_center + width / 2
+        y2 = y_center + height / 2
+    elif fmt in {"xyxy_normalized", "xyxy", "corners", "pascal_normalized"}:
+        x1, y1, x2, y2 = map(float, parts[1:5])
+        x1, x2 = sorted((x1, x2))
+        y1, y2 = sorted((y1, y2))
+    else:
+        raise ValueError(
+            f"Unsupported [labels].box_format={box_format!r}. "
+            "Use 'polygon_normalized', 'xyxy_normalized', or 'yolo_xywh'."
+        )
+
+    x1 = max(0.0, min(1.0, float(x1)))
+    y1 = max(0.0, min(1.0, float(y1)))
+    x2 = max(0.0, min(1.0, float(x2)))
+    y2 = max(0.0, min(1.0, float(y2)))
+
+    if x2 <= x1 or y2 <= y1:
+        return None
+
+    return [x1, y1, x2, y2, float(cls)]
+
+def read_yolo_label_file(
+    label_path: str | os.PathLike,
+    max_boxes: int = MAX_BOXES,
+    config_path: str | os.PathLike = "config.toml",
+) -> np.ndarray:
+    """Read label txt and return padded [x1, y1, x2, y2, class] normalized boxes.
+
+    The function name is kept for compatibility, but the actual input format is
+    controlled by [labels].box_format in config.toml.
+    """
     label_path = Path(label_path)
+    cfg = load_config(config_path)
+    box_format = cfg.labels.box_format
+
     boxes: list[list[float]] = []
     if label_path.exists():
         for raw in label_path.read_text(encoding="utf-8").splitlines():
@@ -156,17 +220,10 @@ def read_yolo_label_file(label_path: str | os.PathLike, max_boxes: int = MAX_BOX
             if not raw:
                 continue
             parts = raw.split()
-            if len(parts) < 5:
+            converted = _convert_label_row_to_xyxy(parts, box_format)
+            if converted is None:
                 continue
-            cls = int(float(parts[0]))
-            x, y, w, h = map(float, parts[1:5])
-            x1 = max(0.0, x - w / 2)
-            y1 = max(0.0, y - h / 2)
-            x2 = min(1.0, x + w / 2)
-            y2 = min(1.0, y + h / 2)
-            if x2 <= x1 or y2 <= y1:
-                continue
-            boxes.append([x1, y1, x2, y2, float(cls)])
+            boxes.append(converted)
 
     out = np.zeros((max_boxes, 5), dtype=np.float32)
     if boxes:
@@ -175,9 +232,10 @@ def read_yolo_label_file(label_path: str | os.PathLike, max_boxes: int = MAX_BOX
     return out
 
 
-def _load_example(image_path_bytes, label_path_bytes):
+def _load_example(image_path_bytes, label_path_bytes, config_path_bytes):
     image_path = image_path_bytes.decode("utf-8")
     label_path = label_path_bytes.decode("utf-8")
+    config_path = config_path_bytes.decode("utf-8")
 
     image_bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
     if image_bgr is None:
@@ -187,11 +245,17 @@ def _load_example(image_path_bytes, label_path_bytes):
     image_rgb = cv2.resize(image_rgb, (SIZE, SIZE), interpolation=cv2.INTER_LINEAR)
     image = image_rgb.astype(np.float32) / 255.0
 
-    labels = read_yolo_label_file(label_path, MAX_BOXES)
+    labels = read_yolo_label_file(label_path, MAX_BOXES, config_path=config_path)
     return image, labels
 
 
-def make_dataset(image_paths: list[Path], batch_size: int, num_classes: int, shuffle: bool = True) -> tf.data.Dataset:
+def make_dataset(
+    image_paths: list[Path],
+    batch_size: int,
+    num_classes: int,
+    shuffle: bool = True,
+    config_path: str | os.PathLike = "config.toml",
+) -> tf.data.Dataset:
     label_paths = [find_label_path(p) for p in image_paths]
 
     image_strs = [str(p) for p in image_paths]
@@ -204,7 +268,7 @@ def make_dataset(image_paths: list[Path], batch_size: int, num_classes: int, shu
     def mapper(image_path, label_path):
         image, labels = tf.numpy_function(
             _load_example,
-            [image_path, label_path],
+            [image_path, label_path, tf.constant(str(config_path))],
             [tf.float32, tf.float32],
         )
         image.set_shape((SIZE, SIZE, 3))

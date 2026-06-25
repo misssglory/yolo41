@@ -17,19 +17,33 @@ weights = "auto"
 use_darknet_pretrained = true
 darknet_weights = "yolov3.weights"
 darknet_weights_url = "https://storage.yandexcloud.net/academy.ai/CV/yolov3.weights"
+# Safe defaults. Do not use large LR: YOLOv3 decodes width/height with exp(tw/th),
+# so oversized updates can collapse predictions to full-image boxes with score 1.0.
+learning_rate = 0.001
+clipnorm = 10.0
+freeze_darknet_epochs = 3
+fine_tune_learning_rate = 0.0003
 
 [environment]
-# Dependency installer mode for notebooks/Colab helper cells.
-# true  -> prefer uv if available
-# false -> always use python -m pip (recommended for Google Colab)
+# Dependency installer backend for notebooks/helpers:
+# "auto" -> real Colab uses pip; local/Nix uses uv if available.
+# "pip"  -> prefer python -m pip. If local Python has no pip and uv exists, fallback to uv.
+# "uv"   -> use uv pip install.
+# "none" -> do not install anything.
+install_backend = "auto"
+
+# Legacy option kept for compatibility. Prefer install_backend above.
+# true  -> prefer uv
+# false -> prefer pip
 use_uv = false
 
-# Colab usually runs Python 3.12 and already supports stable TensorFlow.
-# For Nix + Python 3.14 keep requirements.txt with tf-nightly.
-# For Colab/Python 3.12 prefer requirements-colab.txt.
+# Colab usually already has TensorFlow. requirements-colab.txt intentionally
+# does not include tensorflow; skip_tensorflow_on_colab is a second safety net.
 requirements = "requirements-colab.txt"
 editable_install = true
 upgrade_pip = false
+skip_tensorflow_on_colab = true
+editable_no_deps_on_colab = true
 
 [demo]
 # "square"  -> only 416x416 baseline image.
@@ -52,6 +66,19 @@ sample_count = 16
 grid_cols = 4
 
 [labels]
+
+# Label format in .txt files.
+# Diagnostic result for this chess dataset:
+#   each row has 9 values: class_id x1 y1 x2 y2 x3 y3 x4 y4
+#   so labels are 4-point polygons / quadrilaterals, normalized to 0..1.
+# For YOLOv3 detection training the loader converts each polygon to bbox:
+#   bbox = [min(xs), min(ys), max(xs), max(ys)].
+#
+# Supported values:
+#   "polygon_normalized" -> class x1 y1 x2 y2 x3 y3 x4 y4
+#   "xyxy_normalized"    -> class x1 y1 x2 y2
+#   "yolo_xywh"          -> class x_center y_center width height
+box_format = "polygon_normalized"
 # If data.yaml has correct names, leave override empty and the code will read names from data.yaml.
 # This list is here as a safety net for the lesson chess_yolo dataset and notebooks.
 use_default_chess_names_if_nc_13 = true

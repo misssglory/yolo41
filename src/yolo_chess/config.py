@@ -65,12 +65,21 @@ class DemoConfig:
 
 @dataclass(frozen=True)
 class TrainingConfig:
-    """Controls initialization before fine-tuning."""
+    """Controls initialization and stable fine-tuning.
+
+    YOLOv3 decodes width/height with exp(tw/th), so too large a learning rate
+    can saturate logits and produce full-image boxes with score 1.0. The safe
+    defaults below intentionally use a small LR and gradient clipping.
+    """
 
     weights: str = "auto"
     use_darknet_pretrained: bool = True
     darknet_weights: str = "yolov3.weights"
     darknet_weights_url: str = "https://storage.yandexcloud.net/academy.ai/CV/yolov3.weights"
+    learning_rate: float = 1e-5
+    clipnorm: float = 1.0
+    freeze_darknet_epochs: int = 3
+    fine_tune_learning_rate: float = 3e-6
 
 
 @dataclass(frozen=True)
@@ -90,12 +99,22 @@ class EnvironmentConfig:
 
 @dataclass(frozen=True)
 class LabelsConfig:
-    """Controls class-name mapping for labels and annotations.
+    """Controls class-name mapping and bounding-box label format.
 
-    class_names_override is optional. If empty, names are read from data.yaml.
-    It is useful in notebooks when data.yaml was damaged or saved with wrong encoding.
+    box_format controls how each row of a .txt label file is interpreted.
+
+    Supported values:
+    - polygon_normalized: class x1 y1 x2 y2 x3 y3 x4 y4, normalized to 0..1.
+      This is the current chess_yolo export used in this homework. The loader
+      converts the 4-point polygon to an axis-aligned detection bbox.
+    - xyxy_normalized: class x1 y1 x2 y2, normalized to 0..1.
+    - yolo_xywh: class x_center y_center width height, normalized to 0..1.
+
+    The lesson YOLOv3 target code expects [x1, y1, x2, y2, class], so all
+    input formats are converted to xyxy-normalized before training.
     """
 
+    box_format: str = "polygon_normalized"
     class_names_override: tuple[str, ...] = ()
     use_default_chess_names_if_nc_13: bool = True
 
@@ -156,6 +175,10 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
                 "https://storage.yandexcloud.net/academy.ai/CV/yolov3.weights",
             )
         ).strip(),
+        learning_rate=float(training.get("learning_rate", 1e-5)),
+        clipnorm=float(training.get("clipnorm", 1.0)),
+        freeze_darknet_epochs=int(training.get("freeze_darknet_epochs", 3)),
+        fine_tune_learning_rate=float(training.get("fine_tune_learning_rate", 3e-6)),
     )
     env_cfg = EnvironmentConfig(
         use_uv=bool(environment.get("use_uv", True)),
@@ -165,6 +188,7 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
     )
     raw_override = labels.get("class_names_override", []) or []
     labels_cfg = LabelsConfig(
+        box_format=str(labels.get("box_format", "polygon_normalized")).strip().lower(),
         class_names_override=tuple(str(x) for x in raw_override),
         use_default_chess_names_if_nc_13=bool(labels.get("use_default_chess_names_if_nc_13", True)),
     )

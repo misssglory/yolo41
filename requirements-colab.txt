@@ -1,6 +1,6 @@
 # Google Colab / standard Python 3.12 environment.
-# Colab normally works better with pip than uv and has stable TensorFlow wheels.
-tensorflow
+# Do NOT install tensorflow here: Colab ships its own TensorFlow build.
+# Reinstalling it in a running runtime can cause native .so symbol errors.
 numpy
 opencv-python-headless
 pillow
@@ -8,3 +8,4 @@ pyyaml
 matplotlib
 tqdm
 pandas
+tomli; python_version < "3.11"

@@ -124,7 +124,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data", default="chess_yolo/data.yaml", help="Path to YOLO data.yaml")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch", type=int, default=8)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=None, help="Learning rate. If omitted, uses [training].learning_rate")
+    parser.add_argument("--clipnorm", type=float, default=None, help="Adam gradient clipnorm. If omitted, uses [training].clipnorm")
     parser.add_argument("--device", default="auto", help="auto, cpu, gpu0, /GPU:0, /CPU:0")
     parser.add_argument("--out", default="runs/detect/yolov3_keras_chess")
     parser.add_argument("--weights", default=None, help="auto | none | path/to/*.weights.h5. If omitted, value comes from [training].weights in config.toml")
@@ -148,6 +149,8 @@ def main() -> None:
     )
     darknet_weights = args.darknet_weights or cfg.training.darknet_weights
     darknet_weights_url = args.darknet_weights_url or cfg.training.darknet_weights_url
+    lr = cfg.training.learning_rate if args.lr is None else args.lr
+    clipnorm = cfg.training.clipnorm if args.clipnorm is None else args.clipnorm
 
     data_yaml = ensure_data_yaml(args.data, download_if_missing=args.download_if_missing)
     dataset_info = load_dataset_info(data_yaml, config_path=args.config)
@@ -168,13 +171,18 @@ def main() -> None:
     print(f"  test:    {len(dataset_info.test_images)} images")
     print(f"  classes: {dataset_info.num_classes} -> {dataset_info.class_names}")
     print(f"  run dir: {out_dir}")
+    print("Labels:")
+    print(f"  box_format: {cfg.labels.box_format}")
     print("Initialization:")
     print(f"  existing weights:      {weights_mode}")
     print(f"  pretrained darknet:   {pretrained_darknet}")
     print(f"  darknet weights path: {darknet_weights}")
+    print("Training stability:")
+    print(f"  lr:        {lr}")
+    print(f"  clipnorm:  {clipnorm}")
 
-    train_ds = make_dataset(dataset_info.train_images, args.batch, dataset_info.num_classes, shuffle=True)
-    val_ds = make_dataset(dataset_info.val_images, args.batch, dataset_info.num_classes, shuffle=False)
+    train_ds = make_dataset(dataset_info.train_images, args.batch, dataset_info.num_classes, shuffle=True, config_path=args.config)
+    val_ds = make_dataset(dataset_info.val_images, args.batch, dataset_info.num_classes, shuffle=False, config_path=args.config)
 
     logical_device = choose_device(args.device)
     print(f"Using TensorFlow device: {logical_device}")
@@ -204,7 +212,8 @@ def main() -> None:
             YoloLoss(ANCHORS[ANCHOR_MASKS[1]], classes=dataset_info.num_classes),
             YoloLoss(ANCHORS[ANCHOR_MASKS[2]], classes=dataset_info.num_classes),
         ]
-        model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr), loss=losses)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=lr) if not clipnorm or clipnorm <= 0 else tf.keras.optimizers.Adam(learning_rate=lr, clipnorm=clipnorm)
+        model.compile(optimizer=optimizer, loss=losses)
 
         callbacks = [
             tf.keras.callbacks.ModelCheckpoint(
@@ -222,7 +231,8 @@ def main() -> None:
                 verbose=1,
             ),
             tf.keras.callbacks.CSVLogger(str(out_dir / "keras_log.csv")),
-            tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=5, verbose=1),
+            tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, verbose=1),
+            tf.keras.callbacks.TerminateOnNaN(),
         ]
 
         history = model.fit(
@@ -245,6 +255,7 @@ def main() -> None:
                 f"data={data_yaml}",
                 f"classes={dataset_info.num_classes}",
                 f"class_names={dataset_info.class_names}",
+                f"label_box_format={cfg.labels.box_format}",
                 f"loaded_weights={loaded}",
                 f"loaded_darknet_pretrained={darknet_loaded}",
                 f"image_size={SIZE}",

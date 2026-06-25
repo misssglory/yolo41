@@ -343,3 +343,98 @@ python scripts/check_labels.py --data chess_yolo/data.yaml --config config.toml
 Cyrillic labels are now drawn with PIL instead of `cv2.putText`, because OpenCV text rendering often shows Russian text as `????`.
 
 The inference NMS also explicitly converts boxes from project format `[x1, y1, x2, y2]` to TensorFlow NMS format `[y1, x1, y2, x2]` and then converts them back before drawing. This fixes stretched/wrongly oriented boxes after `combined_non_max_suppression`.
+
+## Robust notebook / Colab bootstrap
+
+Use this first cell both in Colab and local Jupyter. It detects real Colab, avoids reinstalling TensorFlow in Colab, and falls back to `uv` in local Nix venvs that do not contain `pip`.
+
+```python
+from pathlib import Path
+import os
+import sys
+import subprocess
+
+REPO_URL = "https://github.com/misssglory/yolo41.git"
+WORKDIR = Path.cwd()
+REPO_DIR = WORKDIR / "yolov3_chess_homework_lesson"
+
+if not REPO_DIR.exists():
+    subprocess.run(["git", "clone", REPO_URL, str(REPO_DIR)], check=True)
+else:
+    print(f"Repo already exists: {REPO_DIR}")
+    subprocess.run(["git", "-C", str(REPO_DIR), "pull", "--ff-only"], check=False)
+
+os.chdir(REPO_DIR)
+sys.path.insert(0, str(REPO_DIR / "src"))
+
+print("Repo dir:", REPO_DIR)
+print("Python:", sys.executable)
+
+# Let the project decide: Colab -> pip without TensorFlow reinstall;
+# local/Nix -> uv if pip is missing.
+subprocess.run(
+    [sys.executable, "scripts/install_deps.py", "--config", "config.toml"],
+    check=True,
+)
+```
+
+To inspect what it detected without installing anything:
+
+```bash
+python scripts/install_deps.py --config config.toml --print-env
+```
+
+## Notebook setup without subprocess
+
+Do not clone the repository into itself from a local notebook. If `Path.cwd()` is already the project root, just add `src` to `sys.path`.
+See `notebooks/setup_no_subprocess.md` for local and Colab cells that avoid `subprocess.run(...)`.
+
+For local Nix / VS Codium, use `nix develop` first and run Jupyter inside that environment.
+For real Colab, use `%pip` magics in a separate cell; do not run `python -m pip` through Python `subprocess`.
+
+## Current label format fix: polygon labels
+
+The chess dataset used in this homework stores labels as **4-point polygons**, not as standard YOLO `x_center y_center width height` rows.
+
+Each `.txt` row is:
+
+```text
+class_id x1 y1 x2 y2 x3 y3 x4 y4
+```
+
+All coordinates are normalized to `0..1`. For YOLOv3 detection training the project converts every polygon to a normal axis-aligned bbox:
+
+```text
+x_min = min(x1, x2, x3, x4)
+y_min = min(y1, y2, y3, y4)
+x_max = max(x1, x2, x3, x4)
+y_max = max(y1, y2, y3, y4)
+```
+
+This is configured in `config.toml`:
+
+```toml
+[labels]
+box_format = "polygon_normalized"
+```
+
+If you replace the dataset with a standard YOLO/Ultralytics export, change it to:
+
+```toml
+[labels]
+box_format = "yolo_xywh"
+```
+
+Ground-truth visualization is available both as a script and notebook helpers:
+
+```bash
+python scripts/check_labels.py --data chess_yolo/data.yaml --config config.toml
+python scripts/draw_ground_truth.py --data chess_yolo/data.yaml --config config.toml --split valid --imgsz 640
+```
+
+For notebooks without `subprocess`, use functions from:
+
+```python
+from yolo_chess.gt_viz import collect_images_from_split, show_single_ground_truth, show_ground_truth_grid
+from yolo_chess.notebook_api import train_notebook
+```

@@ -125,7 +125,11 @@ def yolo_boxes(pred, anchors, classes):
     box_xy = tf.sigmoid(box_xy)
     score = tf.sigmoid(score)
     class_probs = tf.sigmoid(class_probs)
+    # Keep raw tw/th for the loss, but clip only the exponent input used for
+    # decoded boxes. With too large LR, tw/th can explode; exp(tw/th) then
+    # turns every prediction into a full-image box after NMS clipping.
     pred_box = tf.concat((box_xy, box_wh), axis=-1)
+    box_wh_for_decode = tf.clip_by_value(box_wh, -10.0, 10.0)
 
     grid = tf.meshgrid(tf.range(grid_size), tf.range(grid_size))
     grid = tf.expand_dims(tf.stack(grid, axis=-1), axis=2)
@@ -133,7 +137,7 @@ def yolo_boxes(pred, anchors, classes):
 
     anchors = tf.cast(anchors, tf.float32)
     b_xy = (box_xy + grid) / tf.cast(grid_size, tf.float32)
-    b_wh = tf.exp(box_wh) * anchors
+    b_wh = tf.exp(box_wh_for_decode) * anchors
 
     box_x1y1 = b_xy - b_wh / 2
     box_x2y2 = b_xy + b_wh / 2
