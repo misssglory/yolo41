@@ -1,0 +1,10 @@
+# Python 3.14 path: TensorFlow stable may not yet provide cp314 wheels everywhere.
+# tf-nightly imports as `tensorflow` and is the practical choice for Python 3.14.
+tf-nightly
+numpy
+opencv-python-headless
+pillow
+pyyaml
+matplotlib
+tqdm
+pandas

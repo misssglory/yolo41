@@ -1,0 +1,21 @@
+# Project configuration for YOLOv3 chess homework.
+# The model input is square 416x416, matching the lesson and the chess dataset.
+
+[image]
+size = 416
+
+[demo]
+# "square"  -> only 416x416 baseline image.
+# "mixed"   -> 416x416 baseline + landscape + portrait test images.
+# Aliases accepted by the code: "all", "portrait_landscape", "rectangular".
+orientation_mode = "square"
+
+# How synthetic landscape/portrait images are created from the square chess dataset image.
+# "center_crop" keeps proportions: resize to cover the target rectangle, then crop center.
+# This avoids deformation and is better for a fair rectangular-orientation demonstration.
+# "letterbox" keeps the whole image and adds padding instead of cropping.
+rectangular_transform = "center_crop"
+
+square_size = [416, 416]
+landscape_size = [800, 500]
+portrait_size = [500, 900]

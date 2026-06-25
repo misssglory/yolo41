@@ -1,0 +1,9 @@
+# Use this instead of requirements.txt if you switch flake.nix to python313/python312.
+tensorflow
+numpy
+opencv-python-headless
+pillow
+pyyaml
+matplotlib
+tqdm
+pandas

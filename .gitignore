@@ -1,0 +1,9 @@
+.vscode
+*.zip
+chess_yolo
+yolov3_chess_homework_lesson/
+runs
+*__pycache__*
+
+
+

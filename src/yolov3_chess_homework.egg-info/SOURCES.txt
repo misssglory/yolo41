@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+src/yolo_chess/__init__.py
+src/yolo_chess/config.py
+src/yolo_chess/dataset.py
+src/yolo_chess/demo_shapes.py
+src/yolo_chess/infer.py
+src/yolo_chess/losses.py
+src/yolo_chess/model.py
+src/yolo_chess/predict.py
+src/yolo_chess/train.py
+src/yolov3_chess_homework.egg-info/PKG-INFO
+src/yolov3_chess_homework.egg-info/SOURCES.txt
+src/yolov3_chess_homework.egg-info/dependency_links.txt
+src/yolov3_chess_homework.egg-info/top_level.txt
