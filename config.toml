@@ -101,3 +101,41 @@ class_names_override = []
 #   "белый ферзь",
 #   "белая ладья",
 # ]
+
+[multi_crop_voting]
+# Multi-crop / TTA inference for one original image.
+# It runs the model on overlapping square crops, restores every box to original coordinates,
+# clusters same-class boxes by IoU, then uses voting + weighted box fusion.
+
+# 1.0 = full square window; smaller values are zoomed crops.
+crop_fractions = [1.0, 0.92, 0.84, 0.76]
+
+# center_and_cardinal -> center + left/right/up/down for every fraction.
+# grid3               -> 3x3 grid for every fraction, stronger but slower.
+# center              -> only centered crops.
+offset_mode = "center_and_cardinal"
+
+# Low threshold is intentional: weak single detections may become reliable if repeated.
+base_conf = 0.12
+
+# IoU threshold for grouping detections of the same class into one object.
+fusion_iou = 0.35
+
+# Filter fused clusters.
+min_votes = 1
+min_final_score = 0.18
+
+# eligible = votes / crops that covered the fused box center.
+# total    = votes / all crops.
+support_denominator = "eligible"
+
+# final_score = score_weight * mean_score + support_weight * support_ratio
+score_weight = 0.55
+support_weight = 0.45
+
+# Transparent drawing range. final_score controls alpha.
+alpha_min = 0.18
+alpha_max = 0.85
+
+# Debug: draw all crop windows over final prediction.
+draw_crop_windows = false

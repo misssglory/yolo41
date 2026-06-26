@@ -484,3 +484,60 @@ from yolo_chess.orientation_viz import (
 ```
 
 This satisfies the homework requirement to demonstrate output restoration on images of different sizes and both landscape/portrait orientation without stretching the image.
+
+## Multi-crop voting inference
+
+For unstable single-image predictions you can run several square crops from the same original image and merge repeated detections.
+This is useful for chess pieces because the same figure may be detected in several overlapping crops.
+The project implements this in:
+
+```text
+src/yolo_chess/multi_crop_voting.py
+scripts/multi_crop_voting_predict.py
+notebooks/multicrop_voting_cells.md
+```
+
+Pipeline:
+
+```text
+original image
+→ overlapping square crops
+→ YOLOv3 prediction on every crop
+→ restore every box to original-image coordinates
+→ class-aware IoU clustering
+→ weighted box fusion
+→ support/vote score
+→ transparent visualization by final_score
+```
+
+Config section:
+
+```toml
+[multi_crop_voting]
+crop_fractions = [1.0, 0.92, 0.84, 0.76]
+offset_mode = "center_and_cardinal"
+base_conf = 0.12
+fusion_iou = 0.35
+min_votes = 1
+min_final_score = 0.18
+support_denominator = "eligible"
+score_weight = 0.55
+support_weight = 0.45
+alpha_min = 0.18
+alpha_max = 0.85
+draw_crop_windows = false
+```
+
+CLI example:
+
+```bash
+python scripts/multi_crop_voting_predict.py \
+  --config config.toml \
+  --data chess_yolo/data.yaml \
+  --weights runs/detect/yolov3_keras_chess/weights/best.weights.h5 \
+  --image chess_yolo/test/images/example.jpg \
+  --out runs/detect/multicrop_voting/example.jpg \
+  --json runs/detect/multicrop_voting/example.json
+```
+
+Notebook cells are in `notebooks/multicrop_voting_cells.md`.
