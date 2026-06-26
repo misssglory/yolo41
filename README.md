@@ -438,3 +438,38 @@ For notebooks without `subprocess`, use functions from:
 from yolo_chess.gt_viz import collect_images_from_split, show_single_ground_truth, show_ground_truth_grid
 from yolo_chess.notebook_api import train_notebook
 ```
+
+## Latest fixes: polygon labels, Cyrillic labels, and crop orientation demo
+
+The chess label files in this dataset are polygons, not standard YOLO `xywh` boxes:
+
+```text
+class_id x1 y1 x2 y2 x3 y3 x4 y4
+```
+
+The loader converts each polygon to the axis-aligned detection bbox required by the lesson YOLOv3 target format:
+
+```text
+bbox = [min(xs), min(ys), max(xs), max(ys)]
+```
+
+Cyrillic rendering is handled by `yolo_chess.font_utils`. It searches for DejaVu/Liberation fonts through common Linux/Nix/Colab paths and matplotlib's bundled fonts. If your environment still renders Russian labels incorrectly, set:
+
+```bash
+export YOLO_CHESS_FONT=/path/to/DejaVuSans.ttf
+```
+
+The no-subprocess notebook is here:
+
+```text
+notebooks/run_all_no_subprocess.ipynb
+```
+
+It includes an inline demonstration of:
+
+- original square image;
+- horizontal landscape image created by center crop;
+- vertical portrait image created by center crop;
+- prediction boxes restored to each image's own size.
+
+This satisfies the homework requirement to demonstrate output restoration on images of different sizes and both landscape/portrait orientation without stretching the image.

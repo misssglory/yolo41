@@ -13,6 +13,7 @@ from PIL import Image
 
 from .config import IMAGE_SUFFIXES, load_config
 from .dataset import DatasetInfo, find_label_path, load_dataset_info, read_yolo_label_file
+from .font_utils import configure_matplotlib_cyrillic, get_matplotlib_cyrillic_font
 
 
 @dataclass(frozen=True)
@@ -133,7 +134,11 @@ def draw_ground_truth_matplotlib(
 
     Green polygon = original 4-point label if available.
     Red dashed box = axis-aligned bbox used by YOLOv3 detection training.
+    Text uses an explicit Cyrillic-capable font; matplotlib defaults can render
+    Russian labels as squares/question marks in some Nix/Jupyter setups.
     """
+    font = get_matplotlib_cyrillic_font(fontsize)
+    title_font = get_matplotlib_cyrillic_font(10)
     image_path = Path(image_path)
     label_path = find_label_path(image_path)
 
@@ -156,6 +161,7 @@ def draw_ground_truth_matplotlib(
         ax.set_title(
             f"{image_path.name}\noriginal={original_size}, drawn={img.size}, objects={len(objects)}",
             fontsize=10,
+            fontproperties=title_font,
         )
 
     for obj in objects:
@@ -185,6 +191,7 @@ def draw_ground_truth_matplotlib(
             max(0, y1 - 4),
             f"{class_id}: {class_name}",
             fontsize=fontsize,
+            fontproperties=font,
             color="white",
             va="bottom",
             ha="left",
@@ -201,6 +208,7 @@ def show_single_ground_truth(
     config_path: str | Path = "config.toml",
     draw_imgsz: int | None = 640,
 ):
+    configure_matplotlib_cyrillic()
     if image_path is None:
         image_path = random.choice(images)
     fig, ax, objects, label_path = draw_ground_truth_matplotlib(
@@ -231,6 +239,7 @@ def show_ground_truth_grid(
     draw_imgsz: int | None = 640,
     seed: int = 42,
 ):
+    configure_matplotlib_cyrillic()
     random.seed(seed)
     samples = random.sample(images, min(sample_count, len(images)))
     rows = math.ceil(len(samples) / grid_cols)

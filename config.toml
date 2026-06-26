@@ -19,10 +19,10 @@ darknet_weights = "yolov3.weights"
 darknet_weights_url = "https://storage.yandexcloud.net/academy.ai/CV/yolov3.weights"
 # Safe defaults. Do not use large LR: YOLOv3 decodes width/height with exp(tw/th),
 # so oversized updates can collapse predictions to full-image boxes with score 1.0.
-learning_rate = 0.001
-clipnorm = 10.0
+learning_rate = 0.00001
+clipnorm = 1.0
 freeze_darknet_epochs = 3
-fine_tune_learning_rate = 0.0003
+fine_tune_learning_rate = 0.000003
 
 [environment]
 # Dependency installer backend for notebooks/helpers:
@@ -48,8 +48,9 @@ editable_no_deps_on_colab = true
 [demo]
 # "square"  -> only 416x416 baseline image.
 # "mixed"   -> 416x416 baseline + landscape + portrait test images.
+# Default is mixed because the homework asks to demonstrate horizontal and vertical orientations.
 # Aliases accepted by the code: "all", "portrait_landscape", "rectangular".
-orientation_mode = "square"
+orientation_mode = "mixed"
 
 # How synthetic landscape/portrait images are created from the square chess dataset image.
 # "center_crop" keeps proportions: resize to cover the target rectangle, then crop center.

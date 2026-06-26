@@ -11,6 +11,7 @@ import tensorflow as tf
 from PIL import Image, ImageDraw, ImageFont
 
 from .config import SIZE
+from .font_utils import get_pil_cyrillic_font
 from .model import YoloV3
 
 
@@ -99,18 +100,13 @@ def build_inference_model(weights: str | Path, num_classes: int) -> tf.keras.Mod
 
 
 def _find_unicode_font(size: int = 16) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    """Find a font that can draw Cyrillic labels. OpenCV putText cannot."""
-    candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        "/run/current-system/sw/share/X11/fonts/TTF/DejaVuSans.ttf",
-        "/run/current-system/sw/share/fonts/truetype/DejaVuSans.ttf",
-    ]
-    for path in candidates:
-        if Path(path).exists():
-            return ImageFont.truetype(path, size=size)
-    return ImageFont.load_default()
+    """Find a font that can draw Cyrillic labels. OpenCV putText cannot.
+
+    Uses matplotlib/Pillow font discovery, including matplotlib's bundled
+    DejaVu Sans, which is usually available in Nix/Jupyter and Colab.
+    You can override it with YOLO_CHESS_FONT=/path/to/font.ttf.
+    """
+    return get_pil_cyrillic_font(size=size)
 
 
 def _draw_unicode_detections_bgr(
