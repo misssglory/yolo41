@@ -57,8 +57,8 @@ class DemoConfig:
     orientation_mode: str = "square"
     rectangular_transform: str = "center_crop"
     square_size: tuple[int, int] = (416, 416)
-    landscape_size: tuple[int, int] = (800, 500)
-    portrait_size: tuple[int, int] = (500, 900)
+    landscape_size: tuple[int, int] = (640, 480)
+    portrait_size: tuple[int, int] = (480, 640)
     sample_count: int = 16
     grid_cols: int = 4
 
@@ -160,8 +160,8 @@ def load_config(path: str | Path = "config.toml") -> AppConfig:
         orientation_mode=str(demo.get("orientation_mode", "square")).strip().lower(),
         rectangular_transform=str(demo.get("rectangular_transform", "center_crop")).strip().lower(),
         square_size=_pair(demo.get("square_size"), (image_size, image_size)),
-        landscape_size=_pair(demo.get("landscape_size"), (800, 500)),
-        portrait_size=_pair(demo.get("portrait_size"), (500, 900)),
+        landscape_size=_pair(demo.get("landscape_size"), (640, 480)),
+        portrait_size=_pair(demo.get("portrait_size"), (480, 640)),
         sample_count=int(demo.get("sample_count", 16)),
         grid_cols=int(demo.get("grid_cols", 4)),
     )
@@ -209,8 +209,8 @@ def orientation_cases(demo: DemoConfig) -> list[tuple[str, tuple[int, int]]]:
     if mode in {"mixed", "all", "portrait_landscape", "landscape_portrait", "rectangular"}:
         return [
             ("original_416_square", demo.square_size),
-            ("landscape_800x500", demo.landscape_size),
-            ("portrait_500x900", demo.portrait_size),
+            ("landscape_crop", demo.landscape_size),
+            ("portrait_crop", demo.portrait_size),
         ]
     raise ValueError(
         f"Unsupported [demo].orientation_mode={demo.orientation_mode!r}. "

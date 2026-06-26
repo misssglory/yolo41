@@ -56,11 +56,12 @@ orientation_mode = "mixed"
 # "center_crop" keeps proportions: resize to cover the target rectangle, then crop center.
 # This avoids deformation and is better for a fair rectangular-orientation demonstration.
 # "letterbox" keeps the whole image and adds padding instead of cropping.
+# For this square dataset use moderate 4:3 / 3:4 rectangles; very extreme crops cut away many chess pieces.
 rectangular_transform = "center_crop"
 
 square_size = [416, 416]
-landscape_size = [800, 500]
-portrait_size = [500, 900]
+landscape_size = [640, 480]
+portrait_size = [480, 640]
 
 # Notebook visualization grid. Use 16 for readable examples, 64 for larger reports.
 sample_count = 16

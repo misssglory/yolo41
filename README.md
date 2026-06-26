@@ -472,4 +472,15 @@ It includes an inline demonstration of:
 - vertical portrait image created by center crop;
 - prediction boxes restored to each image's own size.
 
+Important inference detail: rectangular demo inputs are created by crop, but predictions on those rectangular images use overlapping square crop windows by default. Full-image letterbox inference shrinks objects inside a padded 416x416 input, which can remove detections on landscape/portrait images. Crop-window inference keeps object scale close to square training images and then maps boxes back into the landscape/portrait coordinate system.
+
+Notebook functions:
+
+```python
+from yolo_chess.orientation_viz import (
+    show_orientation_predictions,
+    show_orientation_letterbox_vs_crop_windows,
+)
+```
+
 This satisfies the homework requirement to demonstrate output restoration on images of different sizes and both landscape/portrait orientation without stretching the image.

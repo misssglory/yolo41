@@ -10,7 +10,7 @@ import numpy as np
 
 from .config import DemoConfig, load_config, orientation_cases
 from .font_utils import configure_matplotlib_cyrillic, get_matplotlib_cyrillic_font
-from .infer import predict_image_with_meta
+from .infer import predict_image_with_meta, predict_image_with_crop_windows
 
 
 def resize_cover_center_crop(img: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
@@ -105,11 +105,22 @@ def show_orientation_predictions(
     image_path: str | Path,
     class_names: list[str],
     config_path: str | Path = "config.toml",
-    conf: float = 0.45,
+    conf: float = 0.35,
     include_square: bool = True,
     out_dir: str | Path = "notebook_outputs/orientation_crop_inputs",
+    use_crop_windows: bool = True,
+    crop_overlap: float = 0.35,
+    nms_iou: float = 0.45,
 ) -> list[dict[str, Any]]:
-    """Create landscape/portrait center-crops, run prediction and show inline."""
+    """Create square/landscape/portrait crops, run predictions and show inline.
+
+    By default rectangular images are inferred with overlapping square crop
+    windows. This matters because the YOLOv3 model was trained on square chess
+    images: full-image letterbox inference shrinks objects inside landscape or
+    portrait inputs and often produces no detections. Crop-window inference keeps
+    object scale closer to training and then restores boxes to the rectangular
+    image coordinates.
+    """
     font = configure_matplotlib_cyrillic()
     paths = save_orientation_inputs(
         image_path,
@@ -122,13 +133,75 @@ def show_orientation_predictions(
     axes = np.array(axes).reshape(-1)
     reports: list[dict[str, Any]] = []
     for ax, (name, path) in zip(axes, paths):
-        drawn_bgr, report = predict_image_with_meta(model, path, class_names, conf=conf)
+        if use_crop_windows and not name.startswith("square_baseline"):
+            drawn_bgr, report = predict_image_with_crop_windows(
+                model,
+                path,
+                class_names,
+                conf=conf,
+                overlap=crop_overlap,
+                nms_iou=nms_iou,
+            )
+        else:
+            drawn_bgr, report = predict_image_with_meta(model, path, class_names, conf=conf)
         drawn_rgb = cv2.cvtColor(drawn_bgr, cv2.COLOR_BGR2RGB)
         ax.imshow(drawn_rgb)
         ax.set_title(
-            f"{name}\ninput={report['original_size'][0]}x{report['original_size'][1]}, detections={len(report['detections'])}",
+            f"{name}\n{report.get('inference_mode', 'unknown')}\ninput={report['original_size'][0]}x{report['original_size'][1]}, detections={len(report['detections'])}",
             fontproperties=font,
-            fontsize=10,
+            fontsize=9,
+        )
+        ax.axis("off")
+        reports.append(report)
+    plt.tight_layout()
+    plt.show()
+    return reports
+
+
+def show_orientation_letterbox_vs_crop_windows(
+    model,
+    image_path: str | Path,
+    class_names: list[str],
+    config_path: str | Path = "config.toml",
+    conf: float = 0.35,
+    out_dir: str | Path = "notebook_outputs/orientation_crop_inputs",
+    crop_overlap: float = 0.35,
+    nms_iou: float = 0.45,
+) -> list[dict[str, Any]]:
+    """Debug view: compare full-image letterbox and crop-window inference.
+
+    Use this when landscape/portrait detections disappear. The expected result
+    is that crop-window inference finds more boxes because it does not shrink
+    the rectangular image into a padded 416x416 input.
+    """
+    font = configure_matplotlib_cyrillic()
+    paths = save_orientation_inputs(
+        image_path,
+        out_dir=out_dir,
+        config_path=config_path,
+        include_square=False,
+    )
+    panels: list[tuple[str, str, Path]] = []
+    for name, path in paths:
+        panels.append((name, "letterbox_full_image", path))
+        panels.append((name, "square_crop_windows", path))
+
+    fig, axes = plt.subplots(len(paths), 2, figsize=(12, 6 * len(paths)))
+    axes = np.array(axes).reshape(-1)
+    reports: list[dict[str, Any]] = []
+    for ax, (name, mode, path) in zip(axes, panels):
+        if mode == "square_crop_windows":
+            drawn_bgr, report = predict_image_with_crop_windows(
+                model, path, class_names, conf=conf, overlap=crop_overlap, nms_iou=nms_iou
+            )
+        else:
+            drawn_bgr, report = predict_image_with_meta(model, path, class_names, conf=conf)
+        drawn_rgb = cv2.cvtColor(drawn_bgr, cv2.COLOR_BGR2RGB)
+        ax.imshow(drawn_rgb)
+        ax.set_title(
+            f"{name}\n{mode}\ndetections={len(report['detections'])}",
+            fontproperties=font,
+            fontsize=9,
         )
         ax.axis("off")
         reports.append(report)

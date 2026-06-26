@@ -216,20 +216,48 @@ plt.tight_layout()
 plt.show()
 ```
 
-## Cell 10 — square + horizontal + vertical prediction by crop
+## Cell 10 — square + horizontal + vertical prediction by crop windows
+
+Rectangular images are shown as real center-crops, but inference is done with overlapping square crop windows.
+This avoids the failure mode where full-image letterbox shrinks pieces too much on portrait/landscape inputs.
 
 ```python
-from yolo_chess.orientation_viz import show_orientation_predictions
+from yolo_chess.orientation_viz import (
+    show_orientation_predictions,
+    show_orientation_letterbox_vs_crop_windows,
+)
 
 reports = show_orientation_predictions(
     model,
     base_image,
     CLASS_NAMES,
     config_path=CONFIG_PATH,
-    conf=0.45,
+    conf=0.35,
     include_square=True,
+    use_crop_windows=True,
+    crop_overlap=0.35,
+    nms_iou=0.45,
 )
 
 for r in reports:
-    print(r["image_path"], "size=", r["original_size"], "detections=", len(r["detections"]))
+    print(
+        r["image_path"],
+        "mode=", r.get("inference_mode"),
+        "size=", r["original_size"],
+        "detections=", len(r["detections"]),
+    )
+```
+
+Optional debug comparison:
+
+```python
+comparison_reports = show_orientation_letterbox_vs_crop_windows(
+    model,
+    base_image,
+    CLASS_NAMES,
+    config_path=CONFIG_PATH,
+    conf=0.35,
+    crop_overlap=0.35,
+    nms_iou=0.45,
+)
 ```

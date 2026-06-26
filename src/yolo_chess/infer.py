@@ -31,7 +31,7 @@ class LetterboxMeta:
 def letterbox_image_bgr(image_bgr: np.ndarray, size: int = SIZE) -> tuple[np.ndarray, LetterboxMeta]:
     """Resize image to square network input while preserving aspect ratio.
 
-    Returns a 416x416 image with padding and metadata needed to restore boxes.
+    Returns a size x size image with padding and metadata needed to restore boxes.
     """
     original_height, original_width = image_bgr.shape[:2]
     scale = min(size / original_width, size / original_height)
@@ -61,7 +61,7 @@ def letterbox_image_bgr(image_bgr: np.ndarray, size: int = SIZE) -> tuple[np.nda
 def restore_box_from_letterbox(box_norm: np.ndarray, meta: LetterboxMeta) -> tuple[list[float], list[float]]:
     """Convert normalized network xyxy box to original-image pixel xyxy.
 
-    Returns: (box_net_416_xyxy, box_original_xyxy)
+    Returns: (box_net_xyxy, box_original_xyxy)
     """
     box = np.asarray(box_norm, dtype=np.float32)
     box_net = np.array(
@@ -100,12 +100,7 @@ def build_inference_model(weights: str | Path, num_classes: int) -> tf.keras.Mod
 
 
 def _find_unicode_font(size: int = 16) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    """Find a font that can draw Cyrillic labels. OpenCV putText cannot.
-
-    Uses matplotlib/Pillow font discovery, including matplotlib's bundled
-    DejaVu Sans, which is usually available in Nix/Jupyter and Colab.
-    You can override it with YOLO_CHESS_FONT=/path/to/font.ttf.
-    """
+    """Find a font that can draw Cyrillic labels. OpenCV putText cannot."""
     return get_pil_cyrillic_font(size=size)
 
 
@@ -137,19 +132,15 @@ def _draw_unicode_detections_bgr(
     return cv2.cvtColor(np.asarray(pil), cv2.COLOR_RGB2BGR)
 
 
-def predict_image_with_meta(
+def _predict_bgr_with_meta(
     model: tf.keras.Model,
-    image_path: str | Path,
+    image_bgr: np.ndarray,
     class_names: list[str],
     conf: float = 0.25,
+    image_path: str | Path | None = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    """Predict on any image size and draw boxes restored to original image size."""
-    image_path = Path(image_path)
-    original_bgr = cv2.imread(str(image_path))
-    if original_bgr is None:
-        raise FileNotFoundError(f"Could not read image: {image_path}")
-
-    letterboxed_bgr, meta = letterbox_image_bgr(original_bgr, SIZE)
+    """Predict on a BGR image array and draw boxes restored to that array's size."""
+    letterboxed_bgr, meta = letterbox_image_bgr(image_bgr, SIZE)
     rgb = cv2.cvtColor(letterboxed_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
     batch = np.expand_dims(rgb, axis=0)
 
@@ -186,17 +177,217 @@ def predict_image_with_meta(
             }
         )
 
-    drawn = _draw_unicode_detections_bgr(original_bgr.copy(), detections)
+    drawn = _draw_unicode_detections_bgr(image_bgr.copy(), detections)
 
     report = {
-        "image_path": str(image_path),
+        "image_path": str(image_path) if image_path is not None else None,
         "original_size": [meta.original_width, meta.original_height],
         "network_size": [meta.network_width, meta.network_height],
         "output_size": [int(drawn.shape[1]), int(drawn.shape[0])],
         "letterbox": asdict(meta),
         "detections": detections,
+        "inference_mode": "letterbox_full_image",
     }
     return drawn, report
+
+
+def predict_image_with_meta(
+    model: tf.keras.Model,
+    image_path: str | Path,
+    class_names: list[str],
+    conf: float = 0.25,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Predict on any image size using full-image letterbox inference.
+
+    This is faithful to a standard YOLO pipeline, but on very rectangular images
+    the objects become smaller inside the 416x416 padded network input. For the
+    homework orientation crop demo, use predict_image_with_crop_windows instead:
+    it runs square crop windows and restores detections to the original rectangle.
+    """
+    image_path = Path(image_path)
+    original_bgr = cv2.imread(str(image_path))
+    if original_bgr is None:
+        raise FileNotFoundError(f"Could not read image: {image_path}")
+    return _predict_bgr_with_meta(model, original_bgr, class_names, conf=conf, image_path=image_path)
+
+
+def _iou_xyxy(a: np.ndarray, b: np.ndarray) -> float:
+    x1 = max(float(a[0]), float(b[0]))
+    y1 = max(float(a[1]), float(b[1]))
+    x2 = min(float(a[2]), float(b[2]))
+    y2 = min(float(a[3]), float(b[3]))
+    inter_w = max(0.0, x2 - x1)
+    inter_h = max(0.0, y2 - y1)
+    inter = inter_w * inter_h
+    area_a = max(0.0, float(a[2] - a[0])) * max(0.0, float(a[3] - a[1]))
+    area_b = max(0.0, float(b[2] - b[0])) * max(0.0, float(b[3] - b[1]))
+    union = area_a + area_b - inter
+    if union <= 0:
+        return 0.0
+    return inter / union
+
+
+def _nms_detections_numpy(detections: list[dict[str, Any]], iou_threshold: float = 0.45) -> list[dict[str, Any]]:
+    """Simple class-aware NMS for detections restored from multiple crop windows."""
+    if not detections:
+        return []
+    kept: list[dict[str, Any]] = []
+    for class_id in sorted({int(d["class_id"]) for d in detections}):
+        cls_dets = [d for d in detections if int(d["class_id"]) == class_id]
+        cls_dets.sort(key=lambda d: float(d["score"]), reverse=True)
+        while cls_dets:
+            best = cls_dets.pop(0)
+            kept.append(best)
+            best_box = np.asarray(best["box_restored_original_xyxy"], dtype=np.float32)
+            survivors = []
+            for d in cls_dets:
+                box = np.asarray(d["box_restored_original_xyxy"], dtype=np.float32)
+                if _iou_xyxy(best_box, box) < iou_threshold:
+                    survivors.append(d)
+            cls_dets = survivors
+    kept.sort(key=lambda d: float(d["score"]), reverse=True)
+    return kept
+
+
+def _window_starts(length: int, window: int, overlap: float) -> list[int]:
+    if length <= window:
+        return [0]
+    stride = max(1, int(round(window * (1.0 - overlap))))
+    starts = list(range(0, max(1, length - window + 1), stride))
+    last = length - window
+    if starts[-1] != last:
+        starts.append(last)
+    return sorted(set(starts))
+
+
+def make_square_crop_windows(
+    width: int,
+    height: int,
+    crop_size: int | None = None,
+    overlap: float = 0.35,
+) -> list[tuple[int, int, int, int]]:
+    """Return square crop windows as (x1, y1, x2, y2) covering a rectangle.
+
+    crop_size defaults to min(width, height). For landscape images this gives
+    left/center/right square crops; for portrait images top/center/bottom crops.
+    This keeps the object scale close to the original square training images and
+    avoids the shrinkage caused by full-image letterbox inference.
+    """
+    if width <= 0 or height <= 0:
+        return []
+    if crop_size is None:
+        crop_size = min(width, height)
+    crop_size = int(max(8, min(crop_size, width, height)))
+    xs = _window_starts(width, crop_size, overlap)
+    ys = _window_starts(height, crop_size, overlap)
+    return [(x, y, x + crop_size, y + crop_size) for y in ys for x in xs]
+
+
+def predict_image_with_crop_windows(
+    model: tf.keras.Model,
+    image_path: str | Path,
+    class_names: list[str],
+    conf: float = 0.25,
+    crop_size: int | None = None,
+    overlap: float = 0.35,
+    nms_iou: float = 0.45,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Predict on landscape/portrait images with square crop windows.
+
+    The model was trained on square 416x416 chess images. If a rectangular image
+    is letterboxed as a whole, pieces may become too small and detections vanish.
+    This function instead runs the model on overlapping square crops, then maps
+    the detections back to the original rectangular image and merges duplicates.
+    """
+    image_path = Path(image_path)
+    original_bgr = cv2.imread(str(image_path))
+    if original_bgr is None:
+        raise FileNotFoundError(f"Could not read image: {image_path}")
+
+    height, width = original_bgr.shape[:2]
+    windows = make_square_crop_windows(width, height, crop_size=crop_size, overlap=overlap)
+
+    all_detections: list[dict[str, Any]] = []
+    window_reports: list[dict[str, Any]] = []
+
+    for idx, (x1, y1, x2, y2) in enumerate(windows):
+        crop = original_bgr[y1:y2, x1:x2]
+        _, crop_report = _predict_bgr_with_meta(
+            model,
+            crop,
+            class_names,
+            conf=conf,
+            image_path=f"{image_path}#crop_{idx}_{x1}_{y1}_{x2}_{y2}",
+        )
+        mapped = []
+        for det in crop_report["detections"]:
+            bx1, by1, bx2, by2 = det["box_restored_original_xyxy"]
+            full_box = [
+                float(np.clip(bx1 + x1, 0, width - 1)),
+                float(np.clip(by1 + y1, 0, height - 1)),
+                float(np.clip(bx2 + x1, 0, width - 1)),
+                float(np.clip(by2 + y1, 0, height - 1)),
+            ]
+            if full_box[2] <= full_box[0] or full_box[3] <= full_box[1]:
+                continue
+            det2 = dict(det)
+            det2["box_restored_original_xyxy"] = full_box
+            det2["source_window_xyxy"] = [x1, y1, x2, y2]
+            all_detections.append(det2)
+            mapped.append(det2)
+        window_reports.append(
+            {
+                "window_index": idx,
+                "window_xyxy": [x1, y1, x2, y2],
+                "detections_before_merge": mapped,
+            }
+        )
+
+    merged = _nms_detections_numpy(all_detections, iou_threshold=nms_iou)
+    drawn = _draw_unicode_detections_bgr(original_bgr.copy(), merged)
+
+    report = {
+        "image_path": str(image_path),
+        "original_size": [width, height],
+        "output_size": [int(drawn.shape[1]), int(drawn.shape[0])],
+        "network_size": [SIZE, SIZE],
+        "inference_mode": "square_crop_windows",
+        "crop_size": crop_size if crop_size is not None else min(width, height),
+        "overlap": overlap,
+        "nms_iou": nms_iou,
+        "windows": [list(w) for w in windows],
+        "window_reports": window_reports,
+        "detections_before_merge_count": len(all_detections),
+        "detections": merged,
+    }
+    return drawn, report
+
+
+def predict_image_auto_orientation(
+    model: tf.keras.Model,
+    image_path: str | Path,
+    class_names: list[str],
+    conf: float = 0.25,
+    crop_overlap: float = 0.35,
+    nms_iou: float = 0.45,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Use full-image inference for square-ish inputs, crop-window inference otherwise."""
+    image_path = Path(image_path)
+    bgr = cv2.imread(str(image_path))
+    if bgr is None:
+        raise FileNotFoundError(f"Could not read image: {image_path}")
+    h, w = bgr.shape[:2]
+    aspect = max(w / h, h / w)
+    if aspect <= 1.15:
+        return predict_image_with_meta(model, image_path, class_names, conf=conf)
+    return predict_image_with_crop_windows(
+        model,
+        image_path,
+        class_names,
+        conf=conf,
+        overlap=crop_overlap,
+        nms_iou=nms_iou,
+    )
 
 
 def save_prediction(
@@ -206,10 +397,14 @@ def save_prediction(
     out_json_path: str | Path | None,
     class_names: list[str],
     conf: float = 0.25,
+    use_crop_windows: bool = False,
 ) -> dict[str, Any]:
     out_image_path = Path(out_image_path)
     out_image_path.parent.mkdir(parents=True, exist_ok=True)
-    image, report = predict_image_with_meta(model, image_path, class_names, conf)
+    if use_crop_windows:
+        image, report = predict_image_with_crop_windows(model, image_path, class_names, conf=conf)
+    else:
+        image, report = predict_image_with_meta(model, image_path, class_names, conf)
     cv2.imwrite(str(out_image_path), image)
 
     if out_json_path is not None:
